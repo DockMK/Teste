@@ -1,0 +1,108 @@
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define BUF_SIZE 3 // tamanho do buffer
+
+typedef struct {
+    int buf[BUF_SIZE]; // definindo o buffer
+    size_t len; // controla o número de itens do buffer
+    pthread_mutex_t mutex; // variável mutex
+    pthread_cond_t can_produce; // variável condicional indicando que item(s) foram removidos
+    pthread_cond_t can_consume; // variável condicional indicando que item(s) foram adicionados
+} buffer_t;
+
+void* producer(void *arg) {
+    buffer_t *buffer = (buffer_t*)arg;
+    pthread_mutex_lock(&buffer->mutex);
+
+    while (buffer->len == BUF_SIZE) {
+        printf("Buffer cheio. Produtor aguardando...\n");
+        pthread_cond_wait(&buffer->can_produce, &buffer->mutex);
+    }
+
+    int item = rand() % 11; // gera número aleatório entre 0 e 10
+    printf("Produzido: %d\n", item);
+
+    buffer->buf[buffer->len] = item;
+    ++buffer->len;
+
+    pthread_cond_signal(&buffer->can_consume);
+    pthread_mutex_unlock(&buffer->mutex);
+
+    return NULL;
+}
+
+void* consumer(void *arg) {
+    buffer_t *buffer = (buffer_t*)arg;
+    pthread_mutex_lock(&buffer->mutex);
+
+    while (buffer->len == 0) {
+        printf("Buffer vazio. Consumidor aguardando...\n");
+        pthread_cond_wait(&buffer->can_consume, &buffer->mutex);
+    }
+
+    --buffer->len;
+    printf("Consumido: %d\n", buffer->buf[buffer->len]);
+
+    pthread_cond_signal(&buffer->can_produce);
+    pthread_mutex_unlock(&buffer->mutex);
+
+    return NULL;
+}
+
+void run_scenario(int num_producers, int num_consumers) {
+    buffer_t buffer = {
+        .len = 0,
+        .mutex = PTHREAD_MUTEX_INITIALIZER,
+        .can_produce = PTHREAD_COND_INITIALIZER,
+        .can_consume = PTHREAD_COND_INITIALIZER
+    };
+
+    pthread_t producers[num_producers];
+    pthread_t consumers[num_consumers];
+
+    // Cria os produtores
+    for (int i = 0; i < num_producers; i++) {
+        pthread_create(&producers[i], NULL, producer, (void*)&buffer);
+    }
+
+    // Cria os consumidores
+    for (int i = 0; i < num_consumers; i++) {
+        pthread_create(&consumers[i], NULL, consumer, (void*)&buffer);
+    }
+
+    // Espera os produtores terminarem
+    for (int i = 0; i < num_producers; i++) {
+        pthread_join(producers[i], NULL);
+    }
+
+    // Espera os consumidores terminarem
+    for (int i = 0; i < num_consumers; i++) {
+        pthread_join(consumers[i], NULL);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    srand(time(NULL)); // inicializa o gerador de números aleatórios com o tempo atual
+
+    // Cenários com diferentes números de produtores e consumidores:
+    printf("Cenário: 0 produtores, 1 consumidor\n");
+    run_scenario(0, 1);
+
+    printf("\nCenário: 1 produtor, 0 consumidores\n");
+    run_scenario(1, 0);
+
+    printf("\nCenário: 3 produtores, 3 consumidores\n");
+    run_scenario(3, 3);
+
+    printf("\nCenário: 3 produtores, 1 consumidor\n");
+    run_scenario(3, 1);
+
+    printf("\nCenário: 1 produtor, 3 consumidores\n");
+    run_scenario(1, 3);
+
+    printf("\nPrograma acabou.\n");
+    return 0;
+}
